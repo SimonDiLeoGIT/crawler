@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	urls "net/url"
 	"strings"
 	"sync"
 
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/publicsuffix"
 )
 
 var results = make(chan job, 100)
@@ -49,7 +51,7 @@ loop:
 				if !ok {
 					break loop
 				}
-				handleResult(r, &pendingQueue, &pending, visited, &total)
+				handleResult(r, seed, &pendingQueue, &pending, visited, &total)
 			case <-done:
 				pending--
 				if pending == 0 && !jobsClosed {
@@ -63,7 +65,7 @@ loop:
 				if !ok {
 					break loop
 				}
-				handleResult(r, &pendingQueue, &pending, visited, &total)
+				handleResult(r, seed, &pendingQueue, &pending, visited, &total)
 			case <-done:
 				pending--
 				if pending == 0 && !jobsClosed {
@@ -80,9 +82,8 @@ loop:
 	return total
 }
 
-func handleResult(r job, pendingQueue *[]job, pending *int, visited map[string]bool, total *int) {
-
-	if !visited[r.url] {
+func handleResult(r job, seed string, pendingQueue *[]job, pending *int, visited map[string]bool, total *int) {
+	if !visited[r.url] && IsInSeedDomain(r.url, seed) {
 		visited[r.url] = true
 		*total++
 		fmt.Println(r.url)
@@ -93,10 +94,35 @@ func handleResult(r job, pendingQueue *[]job, pending *int, visited map[string]b
 	}
 }
 
+func IsInSeedDomain(url, seed string) bool {
+	parsedURL, err := urls.Parse(url)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	urlRootDomain, err := publicsuffix.EffectiveTLDPlusOne(parsedURL.Hostname())
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+
+	parsedSeed, err := urls.Parse(seed)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	seedRootDomain, err := publicsuffix.EffectiveTLDPlusOne(parsedSeed.Hostname())
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	return urlRootDomain == seedRootDomain
+}
+
 func Fetcher(j job, results chan<- job) {
 	res, err := http.Get(j.url)
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 	defer res.Body.Close()
 
@@ -108,8 +134,8 @@ func Fetcher(j job, results chan<- job) {
 	// Load the HTML document
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
-		log.Fatalf("Could not load html from %s\n", j.url)
-		log.Fatalf("Error: %s\n", err)
+		log.Printf("Could not load html from %s\n", j.url)
+		log.Printf("Error: %s\n", err)
 	}
 
 	// Find the review items

@@ -9,8 +9,8 @@ type job struct {
 	depth int
 }
 
-const maxDepth = 3
-const maxNumWorkers = 8
+const maxDepth = 4
+const maxNumWorkers = 16
 
 func main() {
 	url := "http://bbc.com/"
