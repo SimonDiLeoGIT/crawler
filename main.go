@@ -9,11 +9,12 @@ type job struct {
 	depth int
 }
 
-const maxDepth = 1
-const maxNumWorkers = 3
+const maxDepth = 3
+const maxNumWorkers = 8
 
 func main() {
 	url := "http://bbc.com/"
+	//url := "http://cnn.com"
 
 	total := Crawl(url, maxDepth, maxNumWorkers)
 

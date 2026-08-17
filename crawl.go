@@ -32,13 +32,13 @@ func Crawl(seed string, depth, numWorkers int) int {
 
 	InitWorkers(numWorkers)
 
-	visited := map[string]bool{seed: true}
+	pendingQueue := []job{}
+	pendingQueue = append(pendingQueue, job{url: seed, depth: 0})
 
-	jobs <- job{url: seed, depth: 0}
+	visited := map[string]bool{seed: true}
 
 	pending := 1
 	total := 0
-	pendingQueue := []job{}
 	jobsClosed := false
 
 loop:
@@ -81,14 +81,14 @@ loop:
 }
 
 func handleResult(r job, pendingQueue *[]job, pending *int, visited map[string]bool, total *int) {
-	fmt.Println(r.url)
-	*total++
 
-	if r.depth < maxDepth {
-		if !visited[r.url] {
-			visited[r.url] = true
+	if !visited[r.url] {
+		visited[r.url] = true
+		*total++
+		fmt.Println(r.url)
+		if r.depth < maxDepth {
 			*pending++
-			*pendingQueue = append(*pendingQueue, job{r.url, r.depth + 1})
+			*pendingQueue = append(*pendingQueue, job{r.url, r.depth})
 		}
 	}
 }
@@ -108,21 +108,49 @@ func Fetcher(j job, results chan<- job) {
 	// Load the HTML document
 	doc, err := goquery.NewDocumentFromReader(res.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Could not load html from %s\n", j.url)
+		log.Fatalf("Error: %s\n", err)
 	}
 
 	// Find the review items
 	doc.Find("a").Each(func(i int, s *goquery.Selection) {
 		// For each item found, get the title
 		href, exists := s.Attr("href")
-		if exists {
-			if startsWithHTTPS(href) {
-				results <- job{url: href, depth: j.depth + 1}
-			}
+		if exists && len(href) > 0 {
+			normalizedUrl := NormalizeURL(href, j.url)
+			results <- job{url: normalizedUrl, depth: j.depth + 1}
 		}
 	})
 }
 
-func startsWithHTTPS(href string) bool {
-	return strings.HasPrefix(href, "https://")
+func NormalizeURL(href string, host string) string {
+	if !strings.HasPrefix(href, "https://") && !strings.HasPrefix(href, "http://") {
+		if !strings.HasPrefix(href, "/") {
+			href = host
+		}
+		parts := strings.Split(href, "/")
+		if len(parts) > 1 {
+			if strings.Contains(host, parts[1]) && href != "/" {
+				href = host[:strings.Index(host, parts[1])] + "/" + href
+			}
+		}
+		href = host
+	}
+	parts := strings.Split(href, "?")
+	response := ""
+	if len(parts) > 1 {
+		response = parts[0]
+	}
+	if response != "" {
+		parts = strings.Split(response, "#")
+	} else {
+		parts = strings.Split(href, "#")
+	}
+	if len(parts) > 1 {
+		response = parts[0]
+	}
+	if response != "" {
+		return response
+	}
+	return href
 }
