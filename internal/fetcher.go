@@ -3,12 +3,14 @@ package crawl
 import (
 	"log"
 	"net/http"
+	urls "net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/publicsuffix"
 )
 
-func Fetcher(j job, results chan<- job) {
+func Fetcher(j job, results chan<- fetchResult) {
 	res, err := http.Get(j.url)
 	if err != nil {
 		log.Println(err)
@@ -33,7 +35,7 @@ func Fetcher(j job, results chan<- job) {
 		href, exists := s.Attr("href")
 		if exists && len(href) > 0 {
 			normalizedUrl := NormalizeURL(href, j.url)
-			results <- job{url: normalizedUrl, depth: j.depth + 1}
+			results <- fetchResult{j: job{url: normalizedUrl, depth: j.depth + 1}}
 		}
 	})
 }
@@ -68,4 +70,29 @@ func NormalizeURL(href string, host string) string {
 		return response
 	}
 	return href
+}
+
+func IsInSeedDomain(url, seed string) bool {
+	parsedURL, err := urls.Parse(url)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	urlRootDomain, err := publicsuffix.EffectiveTLDPlusOne(parsedURL.Hostname())
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+
+	parsedSeed, err := urls.Parse(seed)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	seedRootDomain, err := publicsuffix.EffectiveTLDPlusOne(parsedSeed.Hostname())
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	return urlRootDomain == seedRootDomain
 }

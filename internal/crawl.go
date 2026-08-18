@@ -1,38 +1,34 @@
 package crawl
 
 import (
+	"context"
 	"fmt"
-	"log"
-	urls "net/url"
 	"sync"
-
-	"golang.org/x/net/publicsuffix"
+	"time"
 )
 
-const maxDepth = 2
-const maxNumWorkers = 16
-
-var results = make(chan job, 100)
+var results = make(chan fetchResult, 100)
 var jobs = make(chan job, 100)
-var done = make(chan struct{}, 100)
 
-func InitWorkers(numWorkers int) {
+func InitWorkers(ctx context.Context, numWorkers int) *sync.WaitGroup {
 	var wg sync.WaitGroup
-
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go Worker(i, jobs, results, done, &wg)
+		go Worker(i, jobs, results, &wg, ctx)
 	}
-
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
+	return &wg
 }
 
-func Crawl(seed string) int {
+func Crawl(seed string, depth, numWorkers int) {
+	start := time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	InitWorkers(maxNumWorkers)
+	InitWorkers(ctx, numWorkers)
 
 	pendingQueue := []job{}
 	pendingQueue = append(pendingQueue, job{url: seed, depth: 0})
@@ -40,7 +36,8 @@ func Crawl(seed string) int {
 	visited := map[string]bool{seed: true}
 
 	pending := 1
-	total := 0
+	discoveredUrls := 0
+	crawledUrls := 0
 	jobsClosed := false
 
 loop:
@@ -51,9 +48,7 @@ loop:
 				if !ok {
 					break loop
 				}
-				handleResult(r, seed, &pendingQueue, &pending, visited, &total)
-			case <-done:
-				pending--
+				handleResult(r, seed, depth, &pendingQueue, &pending, visited, &discoveredUrls, &crawledUrls)
 				if pending == 0 && !jobsClosed {
 					close(jobs)
 					jobsClosed = true
@@ -65,9 +60,7 @@ loop:
 				if !ok {
 					break loop
 				}
-				handleResult(r, seed, &pendingQueue, &pending, visited, &total)
-			case <-done:
-				pending--
+				handleResult(r, seed, depth, &pendingQueue, &pending, visited, &discoveredUrls, &crawledUrls)
 				if pending == 0 && !jobsClosed {
 					close(jobs)
 					jobsClosed = true
@@ -79,42 +72,33 @@ loop:
 			}
 		}
 	}
-	return total
+
+	elapsed := time.Since(start)
+
+	fmt.Println("")
+	fmt.Println("Crawl completed\n")
+	fmt.Printf("URLs discovered %d\n", discoveredUrls)
+	fmt.Printf("URLs crawled %d\n", crawledUrls)
+	fmt.Printf("URLs skiped %d\n", discoveredUrls-crawledUrls)
+	fmt.Println("")
+	fmt.Printf("Depth: %d\n", depth)
+	fmt.Printf("Workers: %d\n", numWorkers)
+	fmt.Printf("Duration: %v\n", elapsed)
 }
 
-func handleResult(r job, seed string, pendingQueue *[]job, pending *int, visited map[string]bool, total *int) {
-	if !visited[r.url] && IsInSeedDomain(r.url, seed) {
-		visited[r.url] = true
-		*total++
-		fmt.Println(r.url)
-		if r.depth < maxDepth {
+func handleResult(r fetchResult, seed string, depth int, pendingQueue *[]job, pending *int, visited map[string]bool, discoveredUrls, crawledUrls *int) {
+	if r.finished {
+		*pending--
+		return
+	}
+	*discoveredUrls++
+	if !visited[r.j.url] && IsInSeedDomain(r.j.url, seed) {
+		visited[r.j.url] = true
+		*crawledUrls++
+		fmt.Println(r.j.url)
+		if r.j.depth < depth {
 			*pending++
-			*pendingQueue = append(*pendingQueue, job{r.url, r.depth})
+			*pendingQueue = append(*pendingQueue, r.j)
 		}
 	}
-}
-
-func IsInSeedDomain(url, seed string) bool {
-	parsedURL, err := urls.Parse(url)
-	if err != nil {
-		log.Println(err)
-		return false
-	}
-	urlRootDomain, err := publicsuffix.EffectiveTLDPlusOne(parsedURL.Hostname())
-	if err != nil {
-		log.Println(err)
-		return false
-	}
-
-	parsedSeed, err := urls.Parse(seed)
-	if err != nil {
-		log.Println(err)
-		return false
-	}
-	seedRootDomain, err := publicsuffix.EffectiveTLDPlusOne(parsedSeed.Hostname())
-	if err != nil {
-		log.Println(err)
-		return false
-	}
-	return urlRootDomain == seedRootDomain
 }
