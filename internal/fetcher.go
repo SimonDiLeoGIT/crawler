@@ -5,15 +5,13 @@ import (
 	"log"
 	"net/http"
 	urls "net/url"
-	"strings"
-	"time"
+	"path"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/publicsuffix"
 )
 
-func Fetcher(ctx context.Context, j job, results chan<- fetchResult) {
-	client := &http.Client{Timeout: 10 * time.Second}
+func Fetcher(client *http.Client, ctx context.Context, j job, results chan<- fetchResult) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.url, nil)
 	if err != nil {
@@ -47,41 +45,40 @@ func Fetcher(ctx context.Context, j job, results chan<- fetchResult) {
 		href, exists := s.Attr("href")
 		if exists && len(href) > 0 {
 			normalizedUrl := NormalizeURL(href, j.url)
-			results <- fetchResult{j: job{url: normalizedUrl, depth: j.depth + 1}}
+			if normalizedUrl != "" {
+				results <- fetchResult{j: job{url: normalizedUrl, depth: j.depth + 1}}
+			}
 		}
 	})
 }
 
-func NormalizeURL(href string, host string) string {
-	if !strings.HasPrefix(href, "https://") && !strings.HasPrefix(href, "http://") {
-		if !strings.HasPrefix(href, "/") {
-			href = host
-		}
-		parts := strings.Split(href, "/")
-		if len(parts) > 1 {
-			if strings.Contains(host, parts[1]) && href != "/" {
-				href = host[:strings.Index(host, parts[1])] + "/" + href
-			}
-		}
-		href = host
+func NormalizeURL(href string, baseURL string) string {
+	u, err := urls.Parse(href)
+	if err != nil {
+		return ""
 	}
-	parts := strings.Split(href, "?")
-	response := ""
-	if len(parts) > 1 {
-		response = parts[0]
+	base, err := urls.Parse(baseURL)
+	if err != nil {
+		return ""
 	}
-	if response != "" {
-		parts = strings.Split(response, "#")
+
+	u = base.ResolveReference(u)
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return ""
+	}
+
+	u.Fragment = ""
+	u.RawFragment = ""
+	u.RawQuery = ""
+
+	if u.Path == "" {
+		u.Path = "/"
 	} else {
-		parts = strings.Split(href, "#")
+		u.Path = path.Clean(u.Path)
 	}
-	if len(parts) > 1 {
-		response = parts[0]
-	}
-	if response != "" {
-		return response
-	}
-	return href
+
+	return u.String()
 }
 
 func IsInSeedDomain(url, seed string) bool {

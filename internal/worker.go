@@ -3,6 +3,7 @@ package crawl
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 )
 
@@ -16,7 +17,7 @@ type fetchResult struct {
 	finished bool
 }
 
-func Worker(id int, jobs <-chan job, results chan<- fetchResult, wg *sync.WaitGroup, ctx context.Context) {
+func Worker(id int, jobs <-chan job, results chan<- fetchResult, wg *sync.WaitGroup, ctx context.Context, client *http.Client) {
 	defer wg.Done()
 	for {
 		select {
@@ -27,7 +28,7 @@ func Worker(id int, jobs <-chan job, results chan<- fetchResult, wg *sync.WaitGr
 			if !ok {
 				return
 			}
-			Fetcher(ctx, j, results)
+			Fetcher(client, ctx, j, results)
 			results <- fetchResult{finished: true}
 		}
 	}
