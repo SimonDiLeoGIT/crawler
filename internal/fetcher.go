@@ -1,19 +1,30 @@
 package crawl
 
 import (
+	"context"
 	"log"
 	"net/http"
 	urls "net/url"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/publicsuffix"
 )
 
-func Fetcher(j job, results chan<- fetchResult) {
-	res, err := http.Get(j.url)
+func Fetcher(ctx context.Context, j job, results chan<- fetchResult) {
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, j.url, nil)
 	if err != nil {
 		log.Println(err)
+		return
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		log.Println(err)
+		return
 	}
 	defer res.Body.Close()
 
@@ -27,6 +38,7 @@ func Fetcher(j job, results chan<- fetchResult) {
 	if err != nil {
 		log.Printf("Could not load html from %s\n", j.url)
 		log.Printf("Error: %s\n", err)
+		return
 	}
 
 	// Find the review items

@@ -25,9 +25,9 @@ func Worker(id int, jobs <-chan job, results chan<- fetchResult, wg *sync.WaitGr
 			return
 		case j, ok := <-jobs:
 			if !ok {
-				return // jobs channel closed, no more work coming
+				return
 			}
-			Fetcher(j, results)
+			Fetcher(ctx, j, results)
 			results <- fetchResult{finished: true}
 		}
 	}
